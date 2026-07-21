@@ -20,8 +20,18 @@ const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.JWT_SECRET) console.warn('⚠️  JWT_SECRET not set — using a random secret (all sessions reset on restart).');
 
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'phonefinder.db');
-fs.mkdirSync(path.dirname(dbPath), { recursive: true }); // never crash on a missing folder
+// Choose the database location. Prefer DB_PATH (e.g. a mounted Render Disk at
+// /data); if that folder can't be created/written, fall back to a local file
+// so the service still boots (data then won't survive restarts — attach a disk).
+let dbPath = process.env.DB_PATH || path.join(__dirname, 'phonefinder.db');
+try {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+} catch (e) {
+  const fallback = path.join(__dirname, 'phonefinder.db');
+  console.warn(`⚠️  Cannot use ${dbPath} (${e.code || e.message}) — falling back to ${fallback}.`);
+  console.warn('⚠️  Data will NOT survive restarts until a persistent disk is mounted at the DB_PATH folder.');
+  dbPath = fallback;
+}
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.exec(`
