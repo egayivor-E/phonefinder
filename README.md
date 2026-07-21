@@ -37,9 +37,9 @@ battery level — from the cross-platform mobile app or any web browser.
 ```
 ┌─────────────────────┐         HTTPS/JSON          ┌──────────────────────┐
 │  PhoneFinder App    │ ──── location updates ────▶ │   PhoneFinder Server │
-│  (Expo / React      │ ◀──── ring commands ─────── │   Node.js + SQLite   │
-│   Native: iOS +     │                             │                      │
-│   Android)          │                             │                      │
+│  (Expo / React      │ ◀──── ring commands ─────── │   Node.js +          │
+│   Native: iOS +     │                             │   PostgreSQL         │
+│   Android)          │                             │   (Supabase)         │
 └─────────────────────┘                             └──────────┬───────────┘
         ▲                                                      │
         │ find my phone                                        │ same API
@@ -210,10 +210,10 @@ for the live team map, directions and lost-mode workflow.
 
 ## 🔐 Production checklist
 
-- Set a real secret: `JWT_SECRET=... npm start`
-- Serve over HTTPS (Caddy/nginx + Let's Encrypt, or Render/Fly/Railway)
-- Restrict CORS to your dashboard domain
-- Back up `phonefinder.db`
+- Host the database on **Supabase** (free tier) and set `DATABASE_URL`
+- Set a real secret: `JWT_SECRET=...`
+- Serve over HTTPS (Render does this automatically; on a VPS use Caddy/nginx)
+- Restrict CORS to your dashboard domain if you split hosting
 - Rate-limit the auth + location endpoints if you expose it publicly
 
 ## 🗺️ APIs

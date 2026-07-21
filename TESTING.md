@@ -31,6 +31,10 @@ npm install
 npm start          # → "PhoneFinder server running on http://0.0.0.0:4000"
 ```
 
+> No database setup needed locally: without a `DATABASE_URL` the server runs on
+> an **in-memory PostgreSQL** — perfect for testing. (Data resets when you stop
+> the server; production uses Supabase — see DEPLOY.md.)
+
 **Verify** (Terminal 2):
 ```bash
 curl http://localhost:4000/api/health

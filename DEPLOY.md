@@ -1,105 +1,90 @@
 # 🚀 PhoneFinder — Deployment Guide
 
 From zero to a running system your whole organization can use.
+**The whole stack is free:** Render (server, free tier) + Supabase (database,
+free tier) + EAS (app builds, free tier).
 
 ---
 
-## Part 1 — Deploy the server (API + dashboard together)
+## Part 1 — Create the database on Supabase (5 minutes, free forever)
 
-### Option A: Docker (recommended — any VPS: Hetzner, DigitalOcean, Linode…)
+1. **supabase.com** → sign in with GitHub → **New project**
+   - Name: `phonefinder`
+   - **Database password: create one and SAVE IT** (you'll paste it once)
+   - Region: **West EU (London)** — closest to Ghana
+2. Wait ~1–2 minutes for it to provision.
+3. Left sidebar → **Project Settings** (⚙️) → **Database** → scroll to
+   **Connection string** → **URI** tab → select **Session pooler (port 5432)**
+4. Copy the string and replace `[YOUR-DATABASE-PASSWORD]` with your password:
+   ```
+   postgres://postgres.abcdef:[YOUR-DATABASE-PASSWORD]@aws-0-eu-west-1.pooler.supabase.com:5432/postgres
+   ```
+
+That's it — tables are created automatically the first time the server starts.
+Free tier: 500 MB (you'll use a fraction), and it never loses data on deploy.
+
+---
+
+## Part 2 — Deploy the server (API + dashboard together)
+
+### Option A: GitHub + Render — free, auto-deploys on every push ⭐
+
+1. Push to GitHub (`.gitignore` already keeps secrets & node_modules out):
+   ```powershell
+   git init
+   git add .
+   git commit -m "PhoneFinder v1"
+   ```
+   Create a **private** repo `phonefinder` on github.com, then:
+   ```powershell
+   git remote add origin https://github.com/YOUR_USERNAME/phonefinder.git
+   git branch -M main
+   git push -u origin main
+   ```
+2. **render.com** → New → **Web Service** → connect the repo:
+   | Field | Value |
+   |---|---|
+   | **Root Directory** | `server` |
+   | Build Command | `npm install && npm run build` |
+   | Start Command | `node server.js` |
+   | Plan | **Free** — now fine, because the database lives on Supabase |
+3. **Environment** variables:
+   | Key | Value |
+   |---|---|
+   | `DATABASE_URL` | the Supabase connection string from Part 1 |
+   | `JWT_SECRET` | any long random string |
+   | ~~DB_PATH~~ | **delete it if present** (old SQLite setting) |
+4. Deploy → logs end with `PhoneFinder server running` → open your
+   `https://phonefinder-xxxx.onrender.com` URL. ✅
+
+Notes:
+- Free tier sleeps after 15 idle minutes; the first request after sleep takes
+  ~30s, and a phone's next 15s location post wakes it. **Data is safe either way.**
+- Every `git push` redeploys automatically.
+
+### Option B: Docker on a VPS (most control, ~$5/mo)
 
 ```bash
 cd phonefinder
-cp .env.example .env
-# set a strong secret:
-openssl rand -hex 32            # paste the result into .env as JWT_SECRET
-
+cp .env.example .env        # set JWT_SECRET + DATABASE_URL
 docker compose up -d --build
 ```
-
-Done. **Dashboard + API now run at `http://YOUR_SERVER_IP:4000`** (the server
-serves the dashboard itself — one URL for everything).
-
-Updates later: `git pull && docker compose up -d --build`
-Backups: `docker compose exec phonefinder cp /data/phonefinder.db /data/backup-$(date +%F).db`
-(or snapshot the `pfdata` volume).
-
-#### HTTPS with Caddy (2 minutes)
-
+Dashboard + API at `http://YOUR_SERVER_IP:4000`. Add HTTPS with Caddy:
 ```caddyfile
-# /etc/caddy/Caddyfile
 phonefinder.yourorg.com {
     reverse_proxy localhost:4000
 }
 ```
 
-Caddy obtains Let's Encrypt certificates automatically. Then set the app's
-`API_BASE` to `https://phonefinder.yourorg.com`.
-
-### Option B: GitHub + Render — the "Vercel experience" (recommended for you)
-
-Push to GitHub, connect once, and every future `git push` auto-deploys with
-free HTTPS. **Don't use Vercel** — it's serverless with no persistent disk, so
-your database would be erased on every restart. Render gives the same workflow
-plus a disk for the database.
-
-**1. Push to GitHub** (from the `phonefinder` folder; a `.gitignore` is already
-in place — it keeps secrets, the database and node_modules out of the repo):
-
-```powershell
-git init
-git add .
-git commit -m "PhoneFinder v1"
-```
-Create a **private** repo on github.com named `phonefinder`, then:
-```powershell
-git remote add origin https://github.com/YOUR_USERNAME/phonefinder.git
-git branch -M main
-git push -u origin main
-```
-
-**2. Create the service on Render** (https://render.com — free account)
-
-- **New → Web Service → connect your GitHub repo** `phonefinder`
-- Settings:
-  | Field | Value |
-  |---|---|
-  | Name | `phonefinder` |
-  | Region | Frankfurt (closest to Ghana) or Oregon |
-  | **Root Directory** | `server` |
-  | Runtime | Node |
-  | Build Command | `npm install && npm run build` |
-  | Start Command | `node server.js` |
-  | Plan | Free to try it; **Starter ($7/mo)** for real use (free tier sleeps) |
-
-**3. Give it a persistent disk** (this is your database)
-
-- Service → **Disks → Add Disk** → Mount Path: `/data`, size 1 GB
-
-**4. Environment variables** (Service → Environment)
-
-| Key | Value |
-|---|---|
-| `JWT_SECRET` | a long random string (generate: `openssl rand -hex 32`, or any password manager) |
-| `DB_PATH` | `/data/phonefinder.db` |
-
-**5. Deploy** → in ~2 minutes your system is live at
-`https://phonefinder-xxxx.onrender.com` — open it: that's your dashboard. ✅
-
-Later: `git push` = automatic redeploy. Backups: download the disk's file from
-Render's dashboard, or add a scheduled `sqlite3 .backup`.
-
 ### Option C: Other PaaS
 
-| Platform | Notes |
-|---|---|
-| **Railway** | Same GitHub flow; add a volume at `/data`, set `JWT_SECRET` + `DB_PATH`. ~$5/mo. |
-| **Fly.io** | `fly launch` in `server/`, `fly volumes create pfdata --size 1`, mount at `/data`, set the env vars. |
-| **Vercel / Netlify** | ❌ Not suitable — stateless, no persistent database. (Possible only after migrating to Postgres on Neon/Supabase — a rewrite.) |
+- **Railway / Fly.io** — same idea: deploy the `server` folder, set
+  `DATABASE_URL` + `JWT_SECRET`.
+- **Vercel / Netlify** — ❌ not suitable (they can't run this stateful server).
 
 ---
 
-## Part 2 — Build the mobile app into an installable APK
+## Part 3 — Build the mobile app into an installable APK
 
 ### One-time setup
 

@@ -1,11 +1,11 @@
 # PhoneFinder — one-command production deployment
 #
-#   1. cp .env.example .env   and set a strong JWT_SECRET
+#   1. cp .env.example .env   and set JWT_SECRET + DATABASE_URL (Supabase)
 #   2. docker compose up -d --build
 #   3. open http://YOUR_SERVER_IP:4000  (dashboard + API on one URL)
 #
-# For HTTPS, put Caddy/nginx in front (see DEPLOY.md) or deploy behind a
-# platform like Render/Railway that terminates TLS for you.
+# The database lives on Supabase (persistent, free tier) — no local volumes
+# or backups needed. Put Caddy/nginx in front for HTTPS (see DEPLOY.md).
 
 services:
   phonefinder:
@@ -16,16 +16,11 @@ services:
       - "4000:4000"
     environment:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env — e.g. openssl rand -hex 32}
-      DB_PATH: /data/phonefinder.db
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env — your Supabase connection string}
       PORT: 4000
-    volumes:
-      - pfdata:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
-
-volumes:
-  pfdata:
