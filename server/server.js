@@ -13,13 +13,16 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.JWT_SECRET) console.warn('⚠️  JWT_SECRET not set — using a random secret (all sessions reset on restart).');
 
-const db = new Database(process.env.DB_PATH || path.join(__dirname, 'phonefinder.db'));
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'phonefinder.db');
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
