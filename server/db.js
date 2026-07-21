@@ -7,6 +7,10 @@
  *
  * Query helpers accept '?' placeholders (auto-converted to $1..$n).
  */
+// Render's free tier (and many hosts) are IPv4-only; prefer IPv4 so DNS never
+// hands the driver an unreachable IPv6 address (ENETUNREACH).
+require('dns').setDefaultResultOrder('ipv4first');
+
 const url = process.env.DATABASE_URL || '';
 let pool;
 
