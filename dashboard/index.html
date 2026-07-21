@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PhoneFinder — Find My Device</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg:#0b0f14; --card:#151b23; --card2:#1c2430; --border:#232c38;
+    --accent:#3b82f6; --accent2:#22d3ee; --green:#22c55e; --red:#ef4444;
+    --text:#e5e7eb; --muted:#8b95a5;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); }
+  #app { display:flex; height:100%; }
+  #sidebar { width:340px; min-width:340px; background:var(--card); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; }
+  #map { flex:1; }
+  .pad { padding:18px; }
+  h1 { font-size:22px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  label { display:block; color:var(--muted); font-size:12px; margin:10px 0 4px; }
+  input { width:100%; background:var(--card2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px 12px; font-size:14px; }
+  button { cursor:pointer; border:none; border-radius:8px; padding:10px 14px; font-size:14px; font-weight:700; }
+  .primary { background:var(--accent); color:#fff; width:100%; margin-top:14px; }
+  .ghost { background:var(--card2); color:var(--text); border:1px solid var(--border); }
+  .danger { background:var(--red); color:#fff; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .row button { flex:1; }
+  .device { background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+  .device .name { font-weight:800; }
+  .device .meta { color:var(--muted); font-size:12px; margin-top:3px; }
+  .device.selected { border-color:var(--accent); }
+  .err { color:var(--red); font-size:13px; margin-top:10px; }
+  .ok  { color:var(--green); font-size:13px; margin-top:10px; }
+  .link { color:var(--accent2); cursor:pointer; font-size:13px; margin-top:12px; display:inline-block; }
+  .hidden { display:none !important; }
+  .statusbar { border-top:1px solid var(--border); padding:10px 18px; color:var(--muted); font-size:12px; margin-top:auto; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background:#151b23; color:#e5e7eb; }
+  @media (max-width:760px){ #app{flex-direction:column;} #sidebar{width:100%; min-width:0; max-height:45%; order:2;} #map{order:1;} }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <!-- LOGIN -->
+    <div id="loginView" class="pad">
+      <h1>📡 PhoneFinder</h1>
+      <div class="sub">Find <b>your own</b> phone on a map — consent-based tracking.</div>
+      <label>Server URL</label>
+      <input id="serverUrl" placeholder="http://localhost:4000" />
+      <label>Email</label>
+      <input id="email" type="email" placeholder="you@example.com" />
+      <label>Password</label>
+      <input id="password" type="password" placeholder="••••••••" />
+      <button class="primary" id="loginBtn">Sign in</button>
+      <span class="link" id="toggleMode">New here? Create an account</span>
+      <div id="loginErr" class="err"></div>
+    </div>
+
+    <!-- DEVICES -->
+    <div id="devicesView" class="pad hidden">
+      <h1>📡 PhoneFinder</h1>
+      <div class="sub" id="accountLine"></div>
+      <div id="deviceList"></div>
+      <div id="dashErr" class="err"></div>
+      <div class="row">
+        <button class="ghost" id="refreshBtn">⟳ Refresh</button>
+        <button class="ghost" id="locateMeBtn">📍 Find me</button>
+        <button class="ghost" id="logoutBtn">Sign out</button>
+      </div>
+      <div id="zoneBox" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <label style="margin:14px 0 4px;">⭕ Geofence zones</label>
+          <span class="link" id="newZoneBtn" style="margin:0;">＋ New zone</span>
+        </div>
+        <div id="zoneList" style="font-size:12px;color:var(--muted);"></div>
+        <label style="margin-top:10px;">🚨 Zone alerts (live)</label>
+        <div id="alertList" style="font-size:12px;max-height:140px;overflow-y:auto;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--muted);">No alerts yet.</div>
+      </div>
+      <div id="auditBox" class="hidden">
+        <label>📜 Audit log (admin)</label>
+        <div id="auditList" style="font-size:12px;color:var(--muted);max-height:160px;overflow-y:auto;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px;"></div>
+      </div>
+    </div>
+    <div class="statusbar" id="statusLine">Not connected</div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script>
+/* ---------------- state ---------------- */
+const LS = { server:'pf_server', token:'pf_token', email:'pf_email' };
+const defaultServer = (location.protocol === 'http:' || location.protocol === 'https:') && location.hostname
+  ? window.location.origin
+  : 'http://localhost:4000';
+let server = localStorage.getItem(LS.server) || defaultServer;
+let token  = localStorage.getItem(LS.token)  || '';
+let email  = localStorage.getItem(LS.email)  || '';
+let devices = [];
+let selectedId = null;
+let mode = 'login';
+let pollTimer = null;
+let profile = null;   // { user: {id,email,role,consent_at}, org: {id,name,invite_code?} | null }
+
+/* ---------------- map ---------------- */
+const map = L.map('map').setView([5.6037, -0.187], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap contributors © CARTO', maxZoom: 19,
+}).addTo(map);
+const deviceMarkers = {};
+let routeLine = null, trailLine = null, meMarker = null;
+const fenceLayer = L.layerGroup().addTo(map);
+let lastEventId = 0;
+
+/* ---------------- helpers ---------------- */
+const $ = (id) => document.getElementById(id);
+function timeAgo(ts) {
+  if (!ts) return 'never';
+  const s = Math.max(0, (Date.now() - new Date(ts + 'Z').getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+async function api(path, opts = {}) {
+  const res = await fetch(server + path, {
+    method: opts.method || 'GET',
+    headers: { 'Content-Type':'application/json', ...(token ? { Authorization:'Bearer ' + token } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (res.status === 401 && token) { logout(); throw new Error('Session expired — sign in again.'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('Server error ' + res.status));
+  return data;
+}
+
+/* ---------------- auth ---------------- */
+$('serverUrl').value = server;
+$('toggleMode').onclick = () => {
+  mode = mode === 'login' ? 'register' : 'login';
+  $('loginBtn').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+  $('toggleMode').textContent = mode === 'login' ? 'New here? Create an account' : 'Already have an account? Sign in';
+  $('loginErr').textContent = '';
+};
+$('loginBtn').onclick = async () => {
+  $('loginErr').textContent = '';
+  server = $('serverUrl').value.trim().replace(/\/+$/, '');
+  try {
+    const res = await api('/api/auth/' + mode, { method:'POST', body:{ email: $('email').value.trim(), password: $('password').value } });
+    token = res.token; email = res.user.email;
+    localStorage.setItem(LS.server, server);
+    localStorage.setItem(LS.token, token);
+    localStorage.setItem(LS.email, email);
+    try { profile = await api('/api/me'); } catch { profile = null; }
+    showApp();
+  } catch (e) { $('loginErr').textContent = e.message; }
+};
+function logout() {
+  token = ''; localStorage.removeItem(LS.token);
+  clearInterval(pollTimer);
+  $('loginView').classList.remove('hidden');
+  $('devicesView').classList.add('hidden');
+}
+$('logoutBtn').onclick = logout;
+
+/* ---------------- main loop ---------------- */
+function showApp() {
+  $('loginView').classList.add('hidden');
+  $('devicesView').classList.remove('hidden');
+  let line = 'Signed in as ' + email;
+  if (profile && profile.org) {
+    line += ' · 🏢 ' + profile.org.name + ' (' + profile.user.role + ')';
+    if (profile.org.invite_code) line += ' · invite: ' + profile.org.invite_code;
+    $('zoneBox').classList.remove('hidden');
+    if (profile.user.role === 'admin') {
+      $('auditBox').classList.remove('hidden');
+      api('/api/org/audit').then(rows => {
+        $('auditList').innerHTML = rows.length
+          ? rows.map(r => '<div><b>' + escapeHtml(r.action) + '</b> · ' + escapeHtml(r.actor) +
+              (r.device_id ? ' · ' + escapeHtml(r.device_id) : '') + ' · ' + escapeHtml(r.ts) + '</div>').join('')
+          : '<div>No actions recorded yet.</div>';
+      }).catch(() => {});
+    }
+  }
+  $('accountLine').textContent = line;
+  if (!profile) api('/api/me').then(p => { profile = p; showApp(); }).catch(() => {});
+  refresh();
+  clearInterval(pollTimer);
+  pollTimer = setInterval(refresh, 10000);
+}
+
+async function refresh() {
+  try {
+    // In an org, the dashboard shows the whole team map; otherwise personal devices.
+    devices = (profile && profile.org) ? await api('/api/org/devices') : await api('/api/devices');
+    renderDevices();
+    renderMarkers();
+    if (profile && profile.org) {
+      try { renderFences(await api('/api/org/geofences')); } catch {}
+      try { renderAlerts(await api('/api/org/geofence-events')); } catch {}
+    }
+    if (profile && profile.org && profile.user.role === 'admin') {
+      api('/api/org/audit').then(rows => {
+        if ($('auditList')) $('auditList').innerHTML = rows.length
+          ? rows.map(r => '<div><b>' + escapeHtml(r.action) + '</b> · ' + escapeHtml(r.actor) +
+              (r.device_id ? ' · ' + escapeHtml(r.device_id) : '') + ' · ' + escapeHtml(r.ts) + '</div>').join('')
+          : '<div>No actions recorded yet.</div>';
+      }).catch(() => {});
+    }
+    $('statusLine').textContent = 'Connected to ' + server + ' · updated ' + new Date().toLocaleTimeString();
+    $('dashErr').textContent = '';
+  } catch (e) {
+    $('statusLine').textContent = 'Error: ' + e.message;
+  }
+}
+
+function renderDevices() {
+  const list = $('deviceList');
+  list.innerHTML = '';
+  if (!devices.length) {
+    list.innerHTML = '<div class="device"><div class="meta">No devices yet. Install the PhoneFinder app on your phone, sign in with this account, and enable “Protect this phone”.</div></div>';
+    return;
+  }
+  for (const d of devices) {
+    const el = document.createElement('div');
+    el.className = 'device' + (d.id === selectedId ? ' selected' : '');
+    const loc = d.location;
+    const ownerLine = d.owner_email ? '<div class="meta">👤 ' + escapeHtml(d.owner_email) + '</div>' : '';
+    el.innerHTML =
+      '<div class="name">📱 ' + escapeHtml(d.name) + '</div>' + ownerLine +
+      '<div class="meta">' + (loc
+        ? 'Seen ' + timeAgo(loc.ts) + (loc.battery != null ? ' · 🔋 ' + loc.battery + '%' + (loc.charging ? ' ⚡' : '') : '') + (loc.accuracy ? ' · ±' + Math.round(loc.accuracy) + ' m' : '')
+        : 'No location reported yet') +
+        (d.locked ? ' · <b style="color:#f59e0b">🔒 LOCKED</b>' : '') +
+        (d.wiped_at ? ' · <b style="color:#ef4444">🧹 WIPED</b>' : '') + '</div>' +
+      '<div class="row">' +
+        '<button class="ghost" data-act="dir">🧭 Directions</button>' +
+        '<button class="ghost" data-act="nav">🚗 Navigate</button>' +
+        '<button class="danger" data-act="ring">🔊 Ring</button>' +
+      '</div>' +
+      (canManage(d) ? (
+      '<div class="row">' +
+        '<button class="ghost" data-act="locate">📍 Locate</button>' +
+        (d.locked
+          ? '<button class="ghost" data-act="unlock">🔓 Unlock</button>'
+          : '<button class="ghost" data-act="lock">🔒 Lock</button>') +
+        '<button class="danger" data-act="wipe">🧹 Wipe</button>' +
+      '</div>') : '');
+    el.onclick = (ev) => {
+      const btn = ev.target.closest('button');
+      if (btn) { act(btn.dataset.act, d); return; }
+      selectedId = d.id;
+      if (d.location) map.setView([d.location.lat, d.location.lng], Math.max(map.getZoom(), 15));
+      renderDevices();
+    };
+    list.appendChild(el);
+  }
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------------- geofences ---------------- */
+function renderFences(fences) {
+  fenceLayer.clearLayers();
+  const zoneList = $('zoneList');
+  if (zoneList) zoneList.innerHTML = fences.length
+    ? fences.map(f => '<div>⭕ <b>' + escapeHtml(f.name) + '</b> · ' + Math.round(f.radius_m) + ' m · ' + escapeHtml(f.mode) + '</div>').join('')
+    : '<div>No zones yet.</div>';
+  for (const f of fences) {
+    L.circle([f.lat, f.lng], {
+      radius: f.radius_m, color: '#f59e0b', weight: 1.5, dashArray: '5', fillColor: '#f59e0b', fillOpacity: 0.06,
+    }).bindTooltip(escapeHtml(f.name), { permanent: false }).addTo(fenceLayer);
+  }
+}
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880; g.gain.value = 0.07;
+    o.start(); o.stop(ctx.currentTime + 0.35);
+  } catch {}
+}
+
+function renderAlerts(events) {
+  const el = $('alertList');
+  if (!el) return;
+  const newest = events.length ? Math.max(...events.map(e => e.id)) : 0;
+  if (newest > lastEventId && lastEventId !== 0) {
+    // fresh alert arrived while watching → beep + flash the panel
+    beep();
+    el.style.borderColor = '#ef4444';
+    setTimeout(() => { el.style.borderColor = 'var(--border)'; }, 2000);
+  }
+  lastEventId = newest;
+  el.innerHTML = events.length
+    ? events.slice(0, 12).map(e =>
+        '<div>' + (e.kind === 'exit' ? '🔴 <b>EXIT</b>' : '🟢 <b>ENTER</b>') + ' · ' +
+        escapeHtml(e.device || '?') + ' ' + (e.kind === 'exit' ? 'left' : 'entered') + ' “' + escapeHtml(e.fence || '?') + '” · ' +
+        escapeHtml(e.ts) + '</div>').join('')
+    : 'No alerts yet.';
+}
+
+$('newZoneBtn').onclick = async () => {
+  const name = prompt('Zone name (e.g. Tema Depot):');
+  if (!name) return;
+  const lat = parseFloat(prompt('Centre latitude:', '5.6037'));
+  const lng = parseFloat(prompt('Centre longitude:', '-0.187'));
+  const radius = parseFloat(prompt('Radius in metres:', '200'));
+  if (isNaN(lat) || isNaN(lng) || isNaN(radius)) { alert('Invalid numbers.'); return; }
+  const mode = (prompt('Alert on — enter, exit or both:', 'both') || 'both').toLowerCase();
+  try {
+    await api('/api/org/geofences', { method: 'POST', body: { name, lat, lng, radius_m: radius, mode } });
+    refresh();
+  } catch (e) { alert(e.message); }
+};
+
+function renderMarkers() {
+  const seen = new Set();
+  for (const d of devices) {
+    if (!d.location) { if (deviceMarkers[d.id]) { map.removeLayer(deviceMarkers[d.id]); delete deviceMarkers[d.id]; } continue; }
+    seen.add(d.id);
+    const ll = [d.location.lat, d.location.lng];
+    if (!deviceMarkers[d.id]) {
+      deviceMarkers[d.id] = L.circleMarker(ll, { radius:10, color:'#22d3ee', weight:3, fillColor:'#3b82f6', fillOpacity:0.9 }).addTo(map);
+    } else {
+      deviceMarkers[d.id].setLatLng(ll);
+    }
+    deviceMarkers[d.id].bindPopup(
+      '<b>' + escapeHtml(d.name) + '</b>' +
+      (d.owner_email ? '<br>👤 ' + escapeHtml(d.owner_email) : '') +
+      '<br>Seen ' + timeAgo(d.location.ts) +
+      (d.location.battery != null ? '<br>Battery: ' + d.location.battery + '%' : '') +
+      '<br><small>' + d.location.lat.toFixed(5) + ', ' + d.location.lng.toFixed(5) + '</small>'
+    );
+  }
+}
+
+/* ---------------- actions ---------------- */
+function canManage(d) {
+  if (!profile || !profile.org) return true;                       // personal mode
+  return profile.user.role === 'admin' || !d.owner_id || d.owner_id === profile.user.id;
+}
+
+async function act(kind, d) {
+  $('dashErr').textContent = '';
+  if (kind === 'ring') {
+    const allowed = !profile || !profile.org || profile.user.role === 'admin' ||
+                    !d.owner_id || d.owner_id === profile.user.id;
+    if (!allowed) { $('dashErr').textContent = 'Only admins can ring other members’ devices.'; return; }
+    try { await api('/api/devices/' + d.id + '/ring', { method:'POST' }); alert('🔊 Ring command sent — the phone will sound within seconds.'); }
+    catch (e) { $('dashErr').textContent = e.message; }
+    return;
+  }
+  if (kind === 'locate') {
+    try { await api('/api/devices/' + d.id + '/locate', { method:'POST' }); $('statusLine').textContent = '📍 Locate sent — fresh fix incoming…'; setTimeout(refresh, 4000); }
+    catch (e) { $('dashErr').textContent = e.message; }
+    return;
+  }
+  if (kind === 'lock') {
+    const message = prompt('Message shown on the locked screen:', 'This device has been locked by your organization. Please return it.');
+    if (message === null) return;
+    const contact = prompt('Contact number shown on the locked screen (optional):', '') || '';
+    const pin = prompt('Unlock PIN (the holder will need it — share it safely):', '');
+    if (!pin) { alert('A PIN is required to lock the device.'); return; }
+    try { await api('/api/devices/' + d.id + '/lock', { method:'POST', body:{ message, contact, pin } }); refresh(); }
+    catch (e) { $('dashErr').textContent = e.message; }
+    return;
+  }
+  if (kind === 'unlock') {
+    try { await api('/api/devices/' + d.id + '/unlock', { method:'POST', body:{} }); refresh(); }
+    catch (e) { $('dashErr').textContent = e.message; }
+    return;
+  }
+  if (kind === 'wipe') {
+    if (!confirm('Remote wipe ' + d.name + '?\n\nThis erases the PhoneFinder account & data from the device and stops tracking. Personal data on the phone is NOT touched.')) return;
+    try { await api('/api/devices/' + d.id + '/wipe', { method:'POST' }); refresh(); }
+    catch (e) { $('dashErr').textContent = e.message; }
+    return;
+  }
+
+  if (!d.location) { $('dashErr').textContent = d.name + ' has not reported a location yet.'; return; }
+  const dest = [d.location.lat, d.location.lng];
+
+  if (kind === 'nav') {
+    window.open('https://www.google.com/maps/dir/?api=1&destination=' + dest[0] + ',' + dest[1] + '&travelmode=driving', '_blank');
+    return;
+  }
+  if (kind === 'dir') {
+    if (!navigator.geolocation) { $('dashErr').textContent = 'Browser geolocation unavailable.'; return; }
+    $('statusLine').textContent = 'Getting your position…';
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const from = [pos.coords.latitude, pos.coords.longitude];
+      if (!meMarker) meMarker = L.circleMarker(from, { radius:8, color:'#fff', weight:2, fillColor:'#3b82f6', fillOpacity:1 }).addTo(map);
+      else meMarker.setLatLng(from);
+      try {
+        const r = await fetch('https://router.project-osrm.org/route/v1/driving/' + from[1] + ',' + from[0] + ';' + dest[1] + ',' + dest[0] + '?overview=full&geometries=geojson');
+        const data = await r.json();
+        const route = data.routes && data.routes[0];
+        if (!route) throw new Error('No route found');
+        if (routeLine) map.removeLayer(routeLine);
+        routeLine = L.polyline(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]), { color:'#22d3ee', weight:4 }).addTo(map);
+        map.fitBounds(routeLine.getBounds(), { padding:[50,50] });
+        $('statusLine').textContent = '🧭 ' + (route.distance/1000).toFixed(1) + ' km · ~' + Math.round(route.duration/60) + ' min drive to ' + d.name;
+      } catch (e) { $('dashErr').textContent = 'Routing failed: ' + e.message; }
+    }, (e) => { $('dashErr').textContent = 'Could not get your position: ' + e.message; });
+  }
+}
+
+$('refreshBtn').onclick = refresh;
+$('locateMeBtn').onclick = () => {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (!meMarker) meMarker = L.circleMarker(ll, { radius:8, color:'#fff', weight:2, fillColor:'#3b82f6', fillOpacity:1 }).addTo(map);
+    else meMarker.setLatLng(ll);
+    map.setView(ll, 15);
+  });
+};
+
+/* boot */
+if (token && server) showApp();
+</script>
+</body>
+</html>
