@@ -21,7 +21,7 @@ const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('he
 if (!process.env.JWT_SECRET) console.warn('⚠️  JWT_SECRET not set — using a random secret (all sessions reset on restart).');
 
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'phonefinder.db');
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+fs.mkdirSync(path.dirname(dbPath), { recursive: true }); // never crash on a missing folder
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.exec(`
@@ -160,7 +160,6 @@ app.use(cors());
 app.use(express.json());
 // Serve the web dashboard from the same origin (one URL for the whole system).
 // Local dev: dashboard sits next to server/; on Render it's copied inside at build time.
-const fs = require('fs');
 const dashDir = [path.join(__dirname, 'dashboard'), path.join(__dirname, '..', 'dashboard')]
   .find((p) => fs.existsSync(p));
 if (dashDir) app.use(express.static(dashDir));
