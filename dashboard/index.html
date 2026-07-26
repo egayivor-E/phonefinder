@@ -63,6 +63,17 @@
     <div id="devicesView" class="pad hidden">
       <h1>📡 PhoneFinder</h1>
       <div class="sub" id="accountLine"></div>
+      <div id="orgBox" class="hidden" style="background:var(--card2);border:1px solid var(--accent);border-radius:12px;padding:12px;margin-bottom:14px;">
+        <label style="margin-top:0;">🏢 Organization</label>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">You're not in an organization yet. <b>Create one — you become the admin</b> — or join with an invite code.</div>
+        <input id="orgName" placeholder="Organization name (e.g. Accra Logistics)" />
+        <button class="primary" id="createOrgBtn" style="margin-top:8px;">Create organization</button>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <input id="joinCode" placeholder="Invite code" style="text-transform:uppercase;" />
+          <button class="ghost" id="joinOrgBtn" style="white-space:nowrap;">Join</button>
+        </div>
+        <div id="orgErr" class="err"></div>
+      </div>
       <div id="deviceList"></div>
       <div id="dashErr" class="err"></div>
       <div class="row">
@@ -171,6 +182,7 @@ function showApp() {
   $('devicesView').classList.remove('hidden');
   let line = 'Signed in as ' + email;
   if (profile && profile.org) {
+    $('orgBox').classList.add('hidden');
     line += ' · 🏢 ' + profile.org.name + ' (' + profile.user.role + ')';
     if (profile.org.invite_code) line += ' · invite: ' + profile.org.invite_code;
     $('zoneBox').classList.remove('hidden');
@@ -183,6 +195,8 @@ function showApp() {
           : '<div>No actions recorded yet.</div>';
       }).catch(() => {});
     }
+  } else if (profile && !profile.org) {
+    $('orgBox').classList.remove('hidden');
   }
   $('accountLine').textContent = line;
   if (!profile) api('/api/me').then(p => { profile = p; showApp(); }).catch(() => {});
@@ -259,6 +273,27 @@ function renderDevices() {
   }
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------------- organization setup ---------------- */
+async function refreshProfile() { try { profile = await api('/api/me'); } catch {} }
+
+$('createOrgBtn').onclick = async () => {
+  $('orgErr').textContent = '';
+  try {
+    await api('/api/orgs', { method: 'POST', body: { name: $('orgName').value.trim() || 'My Organization' } });
+    await refreshProfile();
+    showApp();
+  } catch (e) { $('orgErr').textContent = e.message; }
+};
+
+$('joinOrgBtn').onclick = async () => {
+  $('orgErr').textContent = '';
+  try {
+    await api('/api/orgs/join', { method: 'POST', body: { code: $('joinCode').value.trim() } });
+    await refreshProfile();
+    showApp();
+  } catch (e) { $('orgErr').textContent = e.message; }
+};
 
 /* ---------------- geofences ---------------- */
 function renderFences(fences) {

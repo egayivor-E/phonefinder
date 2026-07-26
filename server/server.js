@@ -40,12 +40,16 @@ app.use((err, _req, res, _next) => {
 /* ---------- helpers ---------- */
 const sign = (user) => jwt.sign({ uid: user.id, email: user.email }, JWT_SECRET, { expiresIn: '90d' });
 
-function auth(req, res, next) {
+async function auth(req, res, next) {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Missing token' });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
+    // The account may have been deleted directly in the database — treat a
+    // missing user as an expired session so clients log out cleanly.
+    const u = await userRow(req.user.uid);
+    if (!u) return res.status(401).json({ error: 'Account no longer exists' });
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });
