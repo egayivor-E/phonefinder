@@ -1,0 +1,8 @@
+node_modules/
+*.db
+*.db-wal
+*.db-shm
+.env
+server.log
+sim.log
+arena.json

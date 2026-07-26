@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "PhoneFinder",
+    "slug": "phonefinder",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0b0f14",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.example.phonefinder",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "PhoneFinder uses your location so you can find this device again if it is lost or stolen.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "PhoneFinder uses your location in the background so you can find this device even when the app is closed.",
+        "UIBackgroundModes": ["location", "fetch"]
+      }
+    },
+    "android": {
+      "package": "com.example.phonefinder",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "PhoneFinder uses your location so you can find this device again if it is lost or stolen.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-notifications"
+    ]
+  }
+}
